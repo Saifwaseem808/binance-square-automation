@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -18,6 +19,7 @@ from google.genai import types
 # ============================================================
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+
 GEMINI_MODEL = "gemini-3.6-flash"
 
 BINANCE_SQUARE_KEY = os.environ[
@@ -30,11 +32,14 @@ POST_TYPE = os.environ.get(
 ).upper()
 
 BASE_DIR = Path.cwd()
-CHART_PATH = BASE_DIR / "market_chart.png"
+
+CHART_PATH = (
+    BASE_DIR / "market_chart.png"
+)
 
 
 # ============================================================
-# BINANCE MARKET DATA
+# MARKET DATA
 # ============================================================
 
 def get_market_data():
@@ -56,7 +61,9 @@ def get_market_data():
 
         response = requests.get(
             url,
-            params={"symbol": symbol},
+            params={
+                "symbol": symbol
+            },
             timeout=30,
         )
 
@@ -89,13 +96,18 @@ def get_market_data():
 
 
 # ============================================================
-# NEWS COLLECTION
+# NEWS
 # ============================================================
 
-def fetch_news(query, limit=5):
+def fetch_news(
+    query,
+    limit=5
+):
 
-    encoded_query = urllib.parse.quote_plus(
-        query
+    encoded_query = (
+        urllib.parse.quote_plus(
+            query
+        )
     )
 
     url = (
@@ -120,11 +132,15 @@ def fetch_news(query, limit=5):
 
         xml_data = response.read()
 
-    root = ET.fromstring(xml_data)
+    root = ET.fromstring(
+        xml_data
+    )
 
     articles = []
 
-    for item in root.findall(".//item")[:limit]:
+    for item in root.findall(
+        ".//item"
+    )[:limit]:
 
         title = item.findtext(
             "title",
@@ -146,11 +162,14 @@ def fetch_news(query, limit=5):
             default="",
         ).strip()
 
-        source_node = item.find("source")
+        source_node = item.find(
+            "source"
+        )
 
         source = ""
 
         if source_node is not None:
+
             source = (
                 source_node.text or ""
             ).strip()
@@ -219,7 +238,7 @@ def get_latest_news():
 
 
 # ============================================================
-# MARKET CHART
+# CHART
 # ============================================================
 
 def create_market_chart(
@@ -280,9 +299,12 @@ def create_market_chart(
     ):
 
         if value >= 0:
+
             y = value + 0.15
             alignment = "bottom"
+
         else:
+
             y = value - 0.15
             alignment = "top"
 
@@ -305,7 +327,12 @@ def create_market_chart(
     )
 
     plt.tight_layout(
-        rect=[0, 0.05, 1, 1]
+        rect=[
+            0,
+            0.05,
+            1,
+            1,
+        ]
     )
 
     plt.savefig(
@@ -333,15 +360,61 @@ def create_market_chart(
 # GEMINI JSON
 # ============================================================
 
-def ask_gemini_text(prompt):
-
-    import time
+def ask_gemini_json(
+    prompt
+):
 
     client = genai.Client(
         api_key=GEMINI_API_KEY
     )
 
-    # Primary model + fallback model
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+        ),
+    )
+
+    if not response.text:
+
+        raise RuntimeError(
+            "Gemini returned empty output."
+        )
+
+    try:
+
+        return json.loads(
+            response.text
+        )
+
+    except json.JSONDecodeError as error:
+
+        print(
+            "Gemini returned invalid JSON:"
+        )
+
+        print(
+            response.text
+        )
+
+        raise RuntimeError(
+            "Gemini returned invalid JSON."
+        ) from error
+
+
+# ============================================================
+# GEMINI TEXT WITH RETRIES
+# ============================================================
+
+def ask_gemini_text(
+    prompt
+):
+
+    client = genai.Client(
+        api_key=GEMINI_API_KEY
+    )
+
     models = [
         GEMINI_MODEL,
         "gemini-2.5-flash",
@@ -360,19 +433,23 @@ def ask_gemini_text(prompt):
                     f"| attempt {attempt + 1}/3"
                 )
 
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
+                response = (
+                    client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                    )
                 )
 
                 if response.text:
 
                     print(
-                        f"Gemini generation successful "
+                        "Gemini generation successful "
                         f"using {model}"
                     )
 
-                    return response.text.strip()
+                    return (
+                        response.text.strip()
+                    )
 
                 raise RuntimeError(
                     "Gemini returned empty response."
@@ -382,21 +459,30 @@ def ask_gemini_text(prompt):
 
                 last_error = error
 
-                error_text = str(error)
+                error_text = str(
+                    error
+                )
 
                 print("")
                 print(
-                    f"Gemini attempt failed: "
-                    f"{error_text}"
+                    "Gemini attempt failed:"
+                )
+                print(
+                    error_text
                 )
 
-                # Retry temporary server/rate-limit errors.
-                if (
+                temporary = (
                     "503" in error_text
-                    or "UNAVAILABLE" in error_text
-                    or "429" in error_text
-                    or "RESOURCE_EXHAUSTED" in error_text
-                ):
+                    or
+                    "UNAVAILABLE" in error_text
+                    or
+                    "429" in error_text
+                    or
+                    "RESOURCE_EXHAUSTED"
+                    in error_text
+                )
+
+                if temporary:
 
                     if attempt < 2:
 
@@ -405,8 +491,8 @@ def ask_gemini_text(prompt):
                         )
 
                         print(
-                            f"Temporary Gemini error. "
-                            f"Waiting {wait_seconds}s..."
+                            f"Waiting "
+                            f"{wait_seconds}s..."
                         )
 
                         time.sleep(
@@ -416,28 +502,28 @@ def ask_gemini_text(prompt):
                         continue
 
                     print(
-                        f"Model {model} failed "
-                        f"after 3 attempts."
+                        f"Model {model} "
+                        "failed after 3 attempts."
                     )
 
                     break
 
-                # Other errors should not be
-                # hidden/retried unnecessarily.
                 raise
 
     raise RuntimeError(
-        "Gemini article generation failed "
-        "after retries and fallback models. "
+        "Gemini generation failed "
+        "after retries and fallback. "
         f"Last error: {last_error}"
     )
 
 
 # ============================================================
-# BINANCE TEXT CLEANER
+# BASIC TEXT CLEANING
 # ============================================================
 
-def clean_square_text(text):
+def clean_square_text(
+    text
+):
 
     cleaned = str(text)
 
@@ -445,52 +531,88 @@ def clean_square_text(text):
         "BTCUSDT": "BTC",
         "ETHUSDT": "ETH",
         "BNBUSDT": "BNB",
+
         "BTC/USDT": "BTC",
         "ETH/USDT": "ETH",
         "BNB/USDT": "BNB",
+
         "BTC-USDT": "BTC",
         "ETH-USDT": "ETH",
         "BNB-USDT": "BNB",
     }
 
-    for old, new in replacements.items():
+    for old, new in (
+        replacements.items()
+    ):
 
         cleaned = cleaned.replace(
             old,
             new,
         )
 
-    pattern = re.compile(
+    return cleaned.strip()
+
+
+# ============================================================
+# REMOVE TOKEN TAGS
+# ============================================================
+
+def remove_token_tags(
+    text
+):
+
+    cleaned = str(text)
+
+    # Remove Binance-style cashtags.
+    cleaned = re.sub(
         r"\$(BTC|ETH|BNB)\b",
-        re.IGNORECASE,
-    )
-
-    seen = set()
-
-    def replace_token(match):
-
-        token = match.group(1).upper()
-
-        if token in seen:
-            return token
-
-        seen.add(token)
-
-        return f"${token}"
-
-    cleaned = pattern.sub(
-        replace_token,
+        r"\1",
         cleaned,
+        flags=re.IGNORECASE,
     )
+
+    # Remove common pair formats.
+    pair_patterns = [
+        r"\bBTC\s*/\s*USDT\b",
+        r"\bETH\s*/\s*USDT\b",
+        r"\bBNB\s*/\s*USDT\b",
+
+        r"\bBTC\s*-\s*USDT\b",
+        r"\bETH\s*-\s*USDT\b",
+        r"\bBNB\s*-\s*USDT\b",
+
+        r"\bBTCUSDT\b",
+        r"\bETHUSDT\b",
+        r"\bBNBUSDT\b",
+    ]
+
+    for pattern in pair_patterns:
+
+        cleaned = re.sub(
+            pattern,
+            lambda match: (
+                match.group(0)
+                .split("/")[0]
+                .split("-")[0]
+                .replace(
+                    "USDT",
+                    "",
+                )
+            ),
+            cleaned,
+            flags=re.IGNORECASE,
+        )
 
     return cleaned.strip()
 
 
 # ============================================================
-# NEWS
+# NEWS POST
 # ============================================================
 
-def generate_news_post(news):
+def generate_news_post(
+    news
+):
 
     news_data = []
 
@@ -501,7 +623,9 @@ def generate_news_post(news):
                 "title": item["title"],
                 "source": item["source"],
                 "published": item["published"],
-                "description": item["description"],
+                "description": item[
+                    "description"
+                ],
             }
         )
 
@@ -516,7 +640,7 @@ Do NOT create an educational article.
 
 Select the most important 3-5 fresh stories.
 
-For each:
+For each story:
 
 - What happened
 - Why it matters
@@ -526,7 +650,7 @@ Do not invent facts.
 
 Do not copy article text.
 
-Use at most 3 token tags.
+Use at most 3 Binance token tags.
 
 Allowed:
 
@@ -534,8 +658,16 @@ $BTC
 $ETH
 $BNB
 
-Never use trading pairs such as BTCUSDT,
-ETHUSDT, BNBUSDT, BTC/USDT or ETH/USDT.
+Do not use trading pairs.
+
+Never write:
+
+BTCUSDT
+ETHUSDT
+BNBUSDT
+BTC/USDT
+ETH/USDT
+BNB/USDT
 
 Add 3 relevant hashtags.
 
@@ -558,14 +690,15 @@ NEWS:
         prompt
     )
 
-    return (
-        clean_square_text(
-            result["title"]
-        ),
-        clean_square_text(
-            result["body"]
-        ),
+    title = clean_square_text(
+        result["title"]
     )
+
+    body = clean_square_text(
+        result["body"]
+    )
+
+    return title, body
 
 
 # ============================================================
@@ -583,7 +716,7 @@ This is ONLY market analysis.
 
 Do NOT include external news.
 
-Use ONLY this Binance data:
+Use ONLY this Binance market data:
 
 {json.dumps(
     market_data,
@@ -631,14 +764,15 @@ Return JSON only:
         prompt
     )
 
-    return (
-        clean_square_text(
-            result["title"]
-        ),
-        clean_square_text(
-            result["body"]
-        ),
+    title = clean_square_text(
+        result["title"]
     )
+
+    body = clean_square_text(
+        result["body"]
+    )
+
+    return title, body
 
 
 # ============================================================
@@ -655,7 +789,7 @@ This is NOT a news post.
 
 This is NOT a daily market analysis.
 
-Choose ONE useful educational topic.
+Choose ONE educational topic.
 
 Possible topics:
 
@@ -682,8 +816,35 @@ Requirements:
 - Risks and limitations
 - No guaranteed returns
 - No "buy now" or "sell now"
-- At most 3 token tags
-- 3 relevant hashtags
+
+IMPORTANT:
+
+Do NOT use Binance token tags.
+
+Do NOT write:
+
+$BTC
+$ETH
+$BNB
+
+Do NOT write:
+
+BTCUSDT
+ETHUSDT
+BNBUSDT
+
+Do NOT write:
+
+BTC/USDT
+ETH/USDT
+BNB/USDT
+
+You may mention asset names normally,
+such as Bitcoin, Ethereum, or BNB,
+but do not create Binance cashtags or
+trading-pair strings.
+
+Add 3 general topic hashtags at the end.
 
 Do NOT return JSON.
 
@@ -714,9 +875,10 @@ Nothing before TITLE.
             "Article did not contain TITLE:."
         )
 
-    title = title_match.group(
-        1
-    ).strip()
+    title = (
+        title_match.group(1)
+        .strip()
+    )
 
     body_match = re.search(
         r"\bBODY:\s*(.*)$",
@@ -730,20 +892,33 @@ Nothing before TITLE.
             "Article did not contain BODY:."
         )
 
-    body = body_match.group(
-        1
-    ).strip()
+    body = (
+        body_match.group(1)
+        .strip()
+    )
 
-    if not title or not body:
+    if not title:
 
         raise RuntimeError(
-            "Article title or body is empty."
+            "Article title is empty."
         )
 
-    return (
-        clean_square_text(title),
-        clean_square_text(body),
+    if not body:
+
+        raise RuntimeError(
+            "Article body is empty."
+        )
+
+    # Extra safety layer for Article.
+    title = remove_token_tags(
+        title
     )
+
+    body = remove_token_tags(
+        body
+    )
+
+    return title, body
 
 
 # ============================================================
@@ -754,6 +929,7 @@ def publish_to_square(
     title,
     body,
     cover=None,
+    remove_tags=False,
 ):
 
     env = os.environ.copy()
@@ -769,6 +945,16 @@ def publish_to_square(
     body = clean_square_text(
         body
     )
+
+    if remove_tags:
+
+        title = remove_token_tags(
+            title
+        )
+
+        body = remove_token_tags(
+            body
+        )
 
     if cover:
 
@@ -845,19 +1031,22 @@ def main():
     print(
         "=========================================="
     )
+
     print(
         " BINANCE SQUARE SCHEDULED AUTOMATION"
     )
+
     print(
         f" POST TYPE: {POST_TYPE}"
     )
+
     print(
         "=========================================="
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # NEWS
-    # --------------------------------------------------------
+    # ========================================================
 
     if POST_TYPE == "NEWS":
 
@@ -889,9 +1078,9 @@ def main():
             "NEWS POST SUCCESS."
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # MARKET
-    # --------------------------------------------------------
+    # ========================================================
 
     elif POST_TYPE == "MARKET":
 
@@ -932,9 +1121,9 @@ def main():
             "MARKET ANALYSIS SUCCESS."
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # ARTICLE
-    # --------------------------------------------------------
+    # ========================================================
 
     elif POST_TYPE == "ARTICLE":
 
@@ -950,15 +1139,16 @@ def main():
         publish_to_square(
             title,
             body,
+            remove_tags=True,
         )
 
         print(
             "ORIGINAL ARTICLE SUCCESS."
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # ALL
-    # --------------------------------------------------------
+    # ========================================================
 
     elif POST_TYPE == "ALL":
 
@@ -970,10 +1160,14 @@ def main():
             get_market_data()
         )
 
-        news = get_latest_news()
+        news = (
+            get_latest_news()
+        )
 
-        chart = create_market_chart(
-            market_data
+        chart = (
+            create_market_chart(
+                market_data
+            )
         )
 
         news_title, news_body = (
@@ -1006,6 +1200,7 @@ def main():
         publish_to_square(
             article_title,
             article_body,
+            remove_tags=True,
         )
 
         print(
@@ -1021,4 +1216,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
