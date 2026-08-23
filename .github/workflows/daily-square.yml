@@ -24,7 +24,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-  run: pip install requests google-genai
+        run: pip install requests google-genai
 
       - name: Install Binance Square skill
         run: |
