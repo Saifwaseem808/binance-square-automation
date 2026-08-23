@@ -4,131 +4,220 @@ import subprocess
 from datetime import datetime, timezone
 
 import requests
+from google import genai
+from google.genai import types
+
+
+# ============================================================
+# CONFIG
+# ============================================================
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 
+BINANCE_SQUARE_KEY = os.environ["BINANCE_SQUARE_OPENAPI_KEY"]
+
+
+# ============================================================
+# GET MARKET DATA FROM BINANCE PUBLIC API
+# ============================================================
 
 def get_market_data():
-    url = "https://api.coingecko.com/api/v3/simple/price"
 
-    params = {
-        "ids": "bitcoin,ethereum,binancecoin",
-        "vs_currencies": "usd",
-        "include_24hr_change": "true",
-        "include_24hr_vol": "true",
-    }
+    symbols = [
+        "BTCUSDT",
+        "ETHUSDT",
+        "BNBUSDT",
+    ]
 
-    response = requests.get(url, params=params, timeout=30)
-    response.raise_for_status()
+    market_data = {}
 
-    return response.json()
+    for symbol in symbols:
 
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+
+        response = requests.get(
+            url,
+            params={"symbol": symbol},
+            timeout=30,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        market_data[symbol] = {
+            "price_usd": float(data["lastPrice"]),
+            "change_24h_percent": float(data["priceChangePercent"]),
+            "high_24h": float(data["highPrice"]),
+            "low_24h": float(data["lowPrice"]),
+            "volume_24h": float(data["volume"]),
+            "quote_volume_24h": float(data["quoteVolume"]),
+        }
+
+    return market_data
+
+
+# ============================================================
+# GENERATE ARTICLE WITH GEMINI
+# ============================================================
 
 def generate_article(market_data):
+
+    client = genai.Client(
+        api_key=GEMINI_API_KEY
+    )
+
     prompt = f"""
-You are a professional crypto market analyst writing for Binance Square.
+You are an experienced crypto market analyst writing for Binance Square.
 
-Create one original daily crypto market article using ONLY the supplied
-market data.
+Create ONE original daily crypto market article using ONLY the market
+data supplied below.
 
-Requirements:
-- Clear English.
-- Do not invent news or statistics.
-- Discuss BTC, ETH and BNB.
-- Explain important market observations and risks.
-- Do not promise profits.
-- Mention that prices can change.
-- Include $BTC, $ETH and $BNB naturally.
-- Include 3-5 relevant hashtags.
-- Create a strong factual title.
-- Around 700-1000 words.
-- Return ONLY valid JSON in this format:
+IMPORTANT RULES:
+
+1. Do not invent news.
+2. Do not invent statistics.
+3. Do not claim that an event happened unless it is present in the supplied data.
+4. Do not promise profits.
+5. Do not give guaranteed trading predictions.
+6. Clearly explain that market prices are snapshots and can change.
+7. Discuss Bitcoin, Ethereum and BNB.
+8. Explain the current 24-hour price movement.
+9. Mention important market observations.
+10. Discuss potential risks.
+11. Use $BTC, $ETH and $BNB naturally in the article.
+12. Add 3-5 relevant topic hashtags.
+13. Make the article useful and educational.
+14. Use clear English.
+15. Target approximately 700-1000 words.
+16. Create an interesting but factual title.
+
+Return ONLY valid JSON in exactly this format:
 
 {{
-  "title": "Article title",
-  "body": "Article body"
+    "title": "Article title",
+    "body": "Full article body"
 }}
 
-Market data:
+CURRENT MARKET DATA:
+
 {json.dumps(market_data, indent=2)}
 
-Current UTC time:
+CURRENT UTC TIME:
+
 {datetime.now(timezone.utc).isoformat()}
 """
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{MODEL}:generateContent"
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.6,
+            response_mime_type="application/json",
+        ),
     )
 
-    response = requests.post(
-        url,
-        params={"key": GEMINI_API_KEY},
-        json={
-            "contents": [
-                {
-                    "parts": [
-                        {
-                            "text": prompt
-                        }
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.6,
-                "responseMimeType": "application/json",
-            },
-        },
-        timeout=120,
-    )
+    text = response.text
 
-    response.raise_for_status()
+    if not text:
+        raise RuntimeError("Gemini returned an empty response.")
 
-    result = response.json()
+    article = json.loads(text)
 
-    text = result["candidates"][0]["content"]["parts"][0]["text"]
+    if "title" not in article:
+        raise RuntimeError("Gemini response does not contain a title.")
 
-    return json.loads(text)
+    if "body" not in article:
+        raise RuntimeError("Gemini response does not contain article body.")
 
+    if not article["body"].strip():
+        raise RuntimeError("Generated article body is empty.")
+
+    return article
+
+
+# ============================================================
+# PUBLISH TO BINANCE SQUARE
+# ============================================================
 
 def publish_to_square(title, body):
+
+    # The official Binance Square skill expects the API key
+    # in BINANCE_SQUARE_OPENAPI_KEY.
+    #
+    # We do NOT put the key in command-line arguments.
+
+    env = os.environ.copy()
+
+    env["BINANCE_SQUARE_OPENAPI_KEY"] = BINANCE_SQUARE_KEY
+
     command = [
         "node",
         "scripts/post-text.mjs",
-        "--title",
-        title,
         "--text",
         body,
+        "--title",
+        title,
     ]
 
-    subprocess.run(
+    result = subprocess.run(
         command,
         cwd="./square-post",
+        env=env,
         check=True,
+        text=True,
+        capture_output=True,
     )
 
+    print("Binance Square response:")
+    print(result.stdout)
+
+    if result.stderr:
+        print("Binance Square warnings:")
+        print(result.stderr)
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
-    print("Getting market data...")
+
+    print("========================================")
+    print(" Binance Square Automation")
+    print("========================================")
+
+    print("")
+    print("1/3 Getting Binance market data...")
 
     market_data = get_market_data()
 
-    print("Generating article with Gemini...")
+    print("Market data received successfully.")
 
-    article = generate_article(market_data)
+    print("")
+    print("2/3 Generating article with Gemini...")
 
-    print("Article generated:")
+    article = generate_article(
+        market_data
+    )
+
+    print("")
+    print("Generated title:")
     print(article["title"])
 
-    print("Publishing to Binance Square...")
+    print("")
+    print("3/3 Publishing to Binance Square...")
 
     publish_to_square(
         article["title"],
         article["body"],
     )
 
-    print("Published successfully.")
+    print("")
+    print("========================================")
+    print(" Successfully published to Binance Square")
+    print("========================================")
 
 
 if __name__ == "__main__":
