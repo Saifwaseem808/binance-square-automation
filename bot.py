@@ -9,17 +9,17 @@ from google.genai import types
 
 
 # ============================================================
-# CONFIG
+# CONFIGURATION
 # ============================================================
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 
 BINANCE_SQUARE_KEY = os.environ["BINANCE_SQUARE_OPENAPI_KEY"]
 
 
 # ============================================================
-# GET MARKET DATA
+# MARKET DATA
 # ============================================================
 
 def get_market_data():
@@ -32,7 +32,7 @@ def get_market_data():
 
     market_data = {}
 
-    # Binance's official market-data-only endpoint
+    # Binance public market-data endpoint
     url = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
     for symbol in symbols:
@@ -60,7 +60,7 @@ def get_market_data():
 
 
 # ============================================================
-# GENERATE ARTICLE WITH GEMINI
+# GEMINI ARTICLE GENERATION
 # ============================================================
 
 def generate_article(market_data):
@@ -70,35 +70,41 @@ def generate_article(market_data):
     )
 
     prompt = f"""
-You are an experienced crypto market analyst writing for Binance Square.
+You are a professional cryptocurrency market analyst
+writing original content for Binance Square.
 
-Create ONE original daily crypto market article using ONLY the market
-data supplied below.
+Create ONE high-quality daily crypto market article.
+
+Use ONLY the market data supplied below.
 
 IMPORTANT RULES:
 
-1. Do not invent news.
-2. Do not invent statistics.
-3. Do not claim that an event happened unless it is present in the supplied data.
-4. Do not promise profits.
-5. Do not give guaranteed trading predictions.
-6. Explain that prices are snapshots and can change.
-7. Discuss Bitcoin, Ethereum and BNB.
-8. Explain their current 24-hour price movements.
-9. Highlight useful market observations.
-10. Discuss risks.
-11. Use $BTC, $ETH and $BNB naturally.
-12. Add 3-5 relevant hashtags.
-13. Make the article educational and useful.
-14. Use clear English.
-15. Target approximately 700-1000 words.
-16. Create an interesting but factual title.
+1. Do NOT invent news.
+2. Do NOT invent statistics.
+3. Do NOT invent events.
+4. Do NOT make guaranteed price predictions.
+5. Do NOT promise profits.
+6. Do NOT provide "100% accurate" trading signals.
+7. Clearly explain that market data is a snapshot.
+8. Analyze Bitcoin, Ethereum and BNB.
+9. Explain their 24-hour price movements.
+10. Discuss market strength and weakness.
+11. Discuss important risks.
+12. Use $BTC, $ETH and $BNB naturally.
+13. Add 3-5 relevant topic hashtags at the end.
+14. Make the article educational and useful.
+15. Use clear professional English.
+16. Avoid excessive emojis.
+17. Create an interesting factual title.
+18. Target approximately 700-1000 words.
 
-Return ONLY valid JSON in exactly this format:
+Return ONLY valid JSON.
+
+Required format:
 
 {{
     "title": "Article title",
-    "body": "Full article body"
+    "body": "Complete article body"
 }}
 
 CURRENT MARKET DATA:
@@ -114,7 +120,6 @@ CURRENT UTC TIME:
         model=GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
-            temperature=0.6,
             response_mime_type="application/json",
         ),
     )
@@ -122,24 +127,50 @@ CURRENT UTC TIME:
     text = response.text
 
     if not text:
-        raise RuntimeError("Gemini returned an empty response.")
+        raise RuntimeError(
+            "Gemini returned an empty response."
+        )
 
-    article = json.loads(text)
+    try:
+        article = json.loads(text)
+    except json.JSONDecodeError as error:
+        print("Gemini returned:")
+        print(text)
+        raise RuntimeError(
+            "Gemini response was not valid JSON."
+        ) from error
 
     if "title" not in article:
-        raise RuntimeError("Gemini response has no title.")
+        raise RuntimeError(
+            "Gemini response does not contain title."
+        )
 
     if "body" not in article:
-        raise RuntimeError("Gemini response has no body.")
+        raise RuntimeError(
+            "Gemini response does not contain body."
+        )
 
-    if not article["body"].strip():
-        raise RuntimeError("Generated article body is empty.")
+    title = str(article["title"]).strip()
+    body = str(article["body"]).strip()
 
-    return article
+    if not title:
+        raise RuntimeError(
+            "Generated title is empty."
+        )
+
+    if not body:
+        raise RuntimeError(
+            "Generated article body is empty."
+        )
+
+    return {
+        "title": title,
+        "body": body,
+    }
 
 
 # ============================================================
-# PUBLISH TO BINANCE SQUARE
+# BINANCE SQUARE PUBLISH
 # ============================================================
 
 def publish_to_square(title, body):
@@ -157,21 +188,27 @@ def publish_to_square(title, body):
         title,
     ]
 
+    print("Starting Binance Square publisher...")
+
     result = subprocess.run(
         command,
         cwd="./square-post",
         env=env,
-        check=True,
         text=True,
         capture_output=True,
     )
 
-    print("Binance Square response:")
+    print("Binance Square stdout:")
     print(result.stdout)
 
     if result.stderr:
-        print("Binance Square warnings:")
+        print("Binance Square stderr:")
         print(result.stderr)
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Binance Square publishing failed."
+        )
 
 
 # ============================================================
@@ -180,16 +217,32 @@ def publish_to_square(title, body):
 
 def main():
 
-    print("========================================")
-    print(" Binance Square Automation")
-    print("========================================")
-
     print("")
+    print("==========================================")
+    print("      BINANCE SQUARE AUTOMATION")
+    print("==========================================")
+    print("")
+
+    # --------------------------------------------------------
+    # STEP 1
+    # --------------------------------------------------------
+
     print("1/3 Getting Binance market data...")
 
     market_data = get_market_data()
 
     print("Market data received successfully.")
+
+    print(
+        json.dumps(
+            market_data,
+            indent=2
+        )
+    )
+
+    # --------------------------------------------------------
+    # STEP 2
+    # --------------------------------------------------------
 
     print("")
     print("2/3 Generating article with Gemini...")
@@ -199,8 +252,14 @@ def main():
     )
 
     print("")
-    print("Generated title:")
+    print("Generated article title:")
+    print("------------------------------------------")
     print(article["title"])
+    print("------------------------------------------")
+
+    # --------------------------------------------------------
+    # STEP 3
+    # --------------------------------------------------------
 
     print("")
     print("3/3 Publishing to Binance Square...")
@@ -211,9 +270,10 @@ def main():
     )
 
     print("")
-    print("========================================")
-    print(" Successfully published to Binance Square")
-    print("========================================")
+    print("==========================================")
+    print("       PUBLISHED SUCCESSFULLY")
+    print("==========================================")
+    print("")
 
 
 if __name__ == "__main__":
