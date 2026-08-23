@@ -333,69 +333,104 @@ def create_market_chart(
 # GEMINI JSON
 # ============================================================
 
-def ask_gemini_json(prompt):
-
-    client = genai.Client(
-        api_key=GEMINI_API_KEY
-    )
-
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-        ),
-    )
-
-    if not response.text:
-
-        raise RuntimeError(
-            "Gemini returned empty output."
-        )
-
-    try:
-
-        return json.loads(
-            response.text
-        )
-
-    except json.JSONDecodeError as error:
-
-        print(
-            "Gemini returned invalid JSON:"
-        )
-
-        print(
-            response.text
-        )
-
-        raise RuntimeError(
-            "Gemini returned invalid JSON."
-        ) from error
-
-
-# ============================================================
-# GEMINI PLAIN TEXT
-# ============================================================
-
 def ask_gemini_text(prompt):
 
+    import time
+
     client = genai.Client(
         api_key=GEMINI_API_KEY
     )
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
+    # Primary model + fallback model
+    models = [
+        GEMINI_MODEL,
+        "gemini-2.5-flash",
+    ]
+
+    last_error = None
+
+    for model in models:
+
+        for attempt in range(3):
+
+            try:
+
+                print(
+                    f"Gemini model: {model} "
+                    f"| attempt {attempt + 1}/3"
+                )
+
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+
+                if response.text:
+
+                    print(
+                        f"Gemini generation successful "
+                        f"using {model}"
+                    )
+
+                    return response.text.strip()
+
+                raise RuntimeError(
+                    "Gemini returned empty response."
+                )
+
+            except Exception as error:
+
+                last_error = error
+
+                error_text = str(error)
+
+                print("")
+                print(
+                    f"Gemini attempt failed: "
+                    f"{error_text}"
+                )
+
+                # Retry temporary server/rate-limit errors.
+                if (
+                    "503" in error_text
+                    or "UNAVAILABLE" in error_text
+                    or "429" in error_text
+                    or "RESOURCE_EXHAUSTED" in error_text
+                ):
+
+                    if attempt < 2:
+
+                        wait_seconds = (
+                            5 * (attempt + 1)
+                        )
+
+                        print(
+                            f"Temporary Gemini error. "
+                            f"Waiting {wait_seconds}s..."
+                        )
+
+                        time.sleep(
+                            wait_seconds
+                        )
+
+                        continue
+
+                    print(
+                        f"Model {model} failed "
+                        f"after 3 attempts."
+                    )
+
+                    break
+
+                # Other errors should not be
+                # hidden/retried unnecessarily.
+                raise
+
+    raise RuntimeError(
+        "Gemini article generation failed "
+        "after retries and fallback models. "
+        f"Last error: {last_error}"
     )
-
-    if not response.text:
-
-        raise RuntimeError(
-            "Gemini returned empty article."
-        )
-
-    return response.text.strip()
 
 
 # ============================================================
