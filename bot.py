@@ -24,6 +24,11 @@ BINANCE_SQUARE_KEY = os.environ[
     "BINANCE_SQUARE_OPENAPI_KEY"
 ]
 
+POST_TYPE = os.environ.get(
+    "POST_TYPE",
+    "ALL"
+).upper()
+
 BASE_DIR = Path.cwd()
 CHART_PATH = BASE_DIR / "market_chart.png"
 
@@ -146,7 +151,6 @@ def fetch_news(query, limit=5):
         source = ""
 
         if source_node is not None:
-
             source = (
                 source_node.text or ""
             ).strip()
@@ -276,12 +280,9 @@ def create_market_chart(
     ):
 
         if value >= 0:
-
             y = value + 0.15
             alignment = "bottom"
-
         else:
-
             y = value - 0.15
             alignment = "top"
 
@@ -329,7 +330,7 @@ def create_market_chart(
 
 
 # ============================================================
-# GEMINI JSON HELPER
+# GEMINI JSON
 # ============================================================
 
 def ask_gemini_json(prompt):
@@ -374,7 +375,7 @@ def ask_gemini_json(prompt):
 
 
 # ============================================================
-# GEMINI PLAIN TEXT HELPER
+# GEMINI PLAIN TEXT
 # ============================================================
 
 def ask_gemini_text(prompt):
@@ -398,7 +399,7 @@ def ask_gemini_text(prompt):
 
 
 # ============================================================
-# CLEAN BINANCE SQUARE TEXT
+# BINANCE TEXT CLEANER
 # ============================================================
 
 def clean_square_text(text):
@@ -424,8 +425,6 @@ def clean_square_text(text):
             new,
         )
 
-    # Keep only one occurrence of each
-    # supported token cashtag.
     pattern = re.compile(
         r"\$(BTC|ETH|BNB)\b",
         re.IGNORECASE,
@@ -438,7 +437,6 @@ def clean_square_text(text):
         token = match.group(1).upper()
 
         if token in seen:
-
             return token
 
         seen.add(token)
@@ -454,7 +452,7 @@ def clean_square_text(text):
 
 
 # ============================================================
-# NEWS POST
+# NEWS
 # ============================================================
 
 def generate_news_post(news):
@@ -493,8 +491,6 @@ Do not invent facts.
 
 Do not copy article text.
 
-BINANCE TAG RULES:
-
 Use at most 3 token tags.
 
 Allowed:
@@ -503,16 +499,8 @@ $BTC
 $ETH
 $BNB
 
-Do not use trading pairs.
-
-Never write:
-
-BTCUSDT
-ETHUSDT
-BNBUSDT
-BTC/USDT
-ETH/USDT
-BNB/USDT
+Never use trading pairs such as BTCUSDT,
+ETHUSDT, BNBUSDT, BTC/USDT or ETH/USDT.
 
 Add 3 relevant hashtags.
 
@@ -525,22 +513,24 @@ Return JSON only:
 
 NEWS:
 
-{json.dumps(news_data, indent=2)}
+{json.dumps(
+    news_data,
+    indent=2
+)}
 """
 
     result = ask_gemini_json(
         prompt
     )
 
-    title = clean_square_text(
-        result["title"]
+    return (
+        clean_square_text(
+            result["title"]
+        ),
+        clean_square_text(
+            result["body"]
+        ),
     )
-
-    body = clean_square_text(
-        result["body"]
-    )
-
-    return title, body
 
 
 # ============================================================
@@ -584,7 +574,7 @@ Analyze:
 
 Do not promise profits.
 
-Do not give guaranteed predictions.
+Do not guarantee predictions.
 
 Do not tell users to buy or sell.
 
@@ -606,38 +596,33 @@ Return JSON only:
         prompt
     )
 
-    title = clean_square_text(
-        result["title"]
+    return (
+        clean_square_text(
+            result["title"]
+        ),
+        clean_square_text(
+            result["body"]
+        ),
     )
-
-    body = clean_square_text(
-        result["body"]
-    )
-
-    return title, body
 
 
 # ============================================================
-# ORIGINAL LONG-FORM ARTICLE
+# ORIGINAL ARTICLE
 # ============================================================
 
 def generate_original_article():
 
     prompt = """
-Write ONE ORIGINAL LONG-FORM CRYPTO EDUCATIONAL ARTICLE
-for Binance Square.
-
-IMPORTANT:
+Write ONE ORIGINAL LONG-FORM CRYPTO
+EDUCATIONAL ARTICLE for Binance Square.
 
 This is NOT a news post.
 
 This is NOT a daily market analysis.
 
-Do NOT summarize today's headlines.
-
 Choose ONE useful educational topic.
 
-Choose from topics such as:
+Possible topics:
 
 - Crypto liquidity
 - Market cycles
@@ -654,45 +639,33 @@ Choose ONE topic only.
 
 Requirements:
 
-- Original writing.
-- Approximately 1000-1400 words.
-- Clear sections.
-- Useful to intermediate crypto readers.
-- Explain concepts with practical examples.
-- Include risks and limitations.
-- No guaranteed returns.
-- No financial guarantees.
-- No "buy now" or "sell now".
-- Use $BTC, $ETH or $BNB only where genuinely relevant.
-- Use at most 3 token tags.
-- Add 3 relevant hashtags at the end.
-
-VERY IMPORTANT:
+- Original writing
+- Approximately 1000-1400 words
+- Clear sections
+- Useful to intermediate crypto readers
+- Practical examples
+- Risks and limitations
+- No guaranteed returns
+- No "buy now" or "sell now"
+- At most 3 token tags
+- 3 relevant hashtags
 
 Do NOT return JSON.
 
-Return the article using EXACTLY this format:
+Return EXACTLY:
 
 TITLE:
-Your title here
+Your title
 
 BODY:
-Your complete article here
+Your complete article
 
-Do not write anything before TITLE:.
-
-Do not write anything after the article.
-
-Do not use JSON.
+Nothing before TITLE.
 """
 
     text = ask_gemini_text(
         prompt
     )
-
-    # --------------------------------------------------------
-    # Extract TITLE
-    # --------------------------------------------------------
 
     title_match = re.search(
         r"^\s*TITLE:\s*(.+?)\s*$",
@@ -703,16 +676,12 @@ Do not use JSON.
     if not title_match:
 
         raise RuntimeError(
-            "Gemini article did not contain TITLE:."
+            "Article did not contain TITLE:."
         )
 
     title = title_match.group(
         1
     ).strip()
-
-    # --------------------------------------------------------
-    # Extract BODY
-    # --------------------------------------------------------
 
     body_match = re.search(
         r"\bBODY:\s*(.*)$",
@@ -723,38 +692,27 @@ Do not use JSON.
     if not body_match:
 
         raise RuntimeError(
-            "Gemini article did not contain BODY:."
+            "Article did not contain BODY:."
         )
 
     body = body_match.group(
         1
     ).strip()
 
-    if not title:
+    if not title or not body:
 
         raise RuntimeError(
-            "Article title is empty."
+            "Article title or body is empty."
         )
 
-    if not body:
-
-        raise RuntimeError(
-            "Article body is empty."
-        )
-
-    title = clean_square_text(
-        title
+    return (
+        clean_square_text(title),
+        clean_square_text(body),
     )
-
-    body = clean_square_text(
-        body
-    )
-
-    return title, body
 
 
 # ============================================================
-# BINANCE SQUARE PUBLISH
+# PUBLISH
 # ============================================================
 
 def publish_to_square(
@@ -853,165 +811,179 @@ def main():
         "=========================================="
     )
     print(
-        " BINANCE SQUARE 3-POST AUTOMATION"
+        " BINANCE SQUARE SCHEDULED AUTOMATION"
+    )
+    print(
+        f" POST TYPE: {POST_TYPE}"
     )
     print(
         "=========================================="
     )
 
-    # ========================================================
-    # MARKET DATA
-    # ========================================================
-
-    print("")
-    print(
-        "1/7 Getting market data..."
-    )
-
-    market_data = get_market_data()
-
-    print(
-        "Market data ready."
-    )
-
-    # ========================================================
+    # --------------------------------------------------------
     # NEWS
-    # ========================================================
+    # --------------------------------------------------------
 
-    print("")
-    print(
-        "2/7 Getting fresh news..."
-    )
+    if POST_TYPE == "NEWS":
 
-    news = get_latest_news()
-
-    if not news:
-
-        raise RuntimeError(
-            "No news was collected."
+        print("")
+        print(
+            "Getting fresh news..."
         )
 
-    # ========================================================
-    # CHART
-    # ========================================================
+        news = get_latest_news()
 
-    print("")
-    print(
-        "3/7 Creating market chart..."
-    )
+        if not news:
 
-    chart = create_market_chart(
-        market_data
-    )
+            raise RuntimeError(
+                "No news was collected."
+            )
 
-    # ========================================================
-    # NEWS POST
-    # ========================================================
-
-    print("")
-    print(
-        "4/7 Creating NEWS post..."
-    )
-
-    news_title, news_body = (
-        generate_news_post(
-            news
+        title, body = (
+            generate_news_post(
+                news
+            )
         )
-    )
 
-    print(
-        "Publishing NEWS..."
-    )
+        publish_to_square(
+            title,
+            body,
+        )
 
-    publish_to_square(
-        news_title,
-        news_body,
-    )
+        print(
+            "NEWS POST SUCCESS."
+        )
 
-    print(
-        "NEWS POST SUCCESS."
-    )
+    # --------------------------------------------------------
+    # MARKET
+    # --------------------------------------------------------
 
-    # ========================================================
-    # MARKET ANALYSIS
-    # ========================================================
+    elif POST_TYPE == "MARKET":
 
-    print("")
-    print(
-        "5/7 Creating MARKET ANALYSIS..."
-    )
+        print("")
+        print(
+            "Getting market data..."
+        )
 
-    analysis_title, analysis_body = (
-        generate_market_analysis(
+        market_data = (
+            get_market_data()
+        )
+
+        print(
+            "Creating market chart..."
+        )
+
+        chart = create_market_chart(
             market_data
         )
-    )
 
-    print(
-        "Publishing MARKET ANALYSIS..."
-    )
+        print(
+            "Generating market analysis..."
+        )
 
-    publish_to_square(
-        analysis_title,
-        analysis_body,
-        chart,
-    )
+        title, body = (
+            generate_market_analysis(
+                market_data
+            )
+        )
 
-    print(
-        "MARKET ANALYSIS SUCCESS."
-    )
+        publish_to_square(
+            title,
+            body,
+            chart,
+        )
 
-    # ========================================================
-    # ORIGINAL ARTICLE
-    # ========================================================
+        print(
+            "MARKET ANALYSIS SUCCESS."
+        )
 
-    print("")
-    print(
-        "6/7 Creating ORIGINAL ARTICLE..."
-    )
+    # --------------------------------------------------------
+    # ARTICLE
+    # --------------------------------------------------------
 
-    article_title, article_body = (
-        generate_original_article()
-    )
+    elif POST_TYPE == "ARTICLE":
 
-    print(
-        f"ARTICLE: {article_title}"
-    )
+        print("")
+        print(
+            "Generating original article..."
+        )
 
-    print(
-        "Publishing ORIGINAL ARTICLE..."
-    )
+        title, body = (
+            generate_original_article()
+        )
 
-    publish_to_square(
-        article_title,
-        article_body,
-    )
+        publish_to_square(
+            title,
+            body,
+        )
 
-    print(
-        "ORIGINAL ARTICLE SUCCESS."
-    )
+        print(
+            "ORIGINAL ARTICLE SUCCESS."
+        )
 
-    # ========================================================
-    # DONE
-    # ========================================================
+    # --------------------------------------------------------
+    # ALL
+    # --------------------------------------------------------
 
-    print("")
-    print(
-        "7/7 Finished."
-    )
+    elif POST_TYPE == "ALL":
 
-    print("")
-    print(
-        "=========================================="
-    )
-    print(
-        "  3 SEPARATE POSTS PUBLISHED SUCCESSFULLY"
-    )
-    print(
-        "=========================================="
-    )
+        print(
+            "Running ALL mode..."
+        )
+
+        market_data = (
+            get_market_data()
+        )
+
+        news = get_latest_news()
+
+        chart = create_market_chart(
+            market_data
+        )
+
+        news_title, news_body = (
+            generate_news_post(
+                news
+            )
+        )
+
+        publish_to_square(
+            news_title,
+            news_body,
+        )
+
+        analysis_title, analysis_body = (
+            generate_market_analysis(
+                market_data
+            )
+        )
+
+        publish_to_square(
+            analysis_title,
+            analysis_body,
+            chart,
+        )
+
+        article_title, article_body = (
+            generate_original_article()
+        )
+
+        publish_to_square(
+            article_title,
+            article_body,
+        )
+
+        print(
+            "ALL POSTS SUCCESS."
+        )
+
+    else:
+
+        raise RuntimeError(
+            "Invalid POST_TYPE: "
+            f"{POST_TYPE}"
+        )
 
 
 if __name__ == "__main__":
-
     main()
