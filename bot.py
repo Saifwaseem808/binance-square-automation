@@ -58,7 +58,92 @@ def get_market_data():
 
     return market_data
 
+# ============================================================
+# CREATE MARKET CHART
+# ============================================================
 
+def create_market_chart(market_data):
+
+    import matplotlib.pyplot as plt
+
+    symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+
+    names = ["BTC", "ETH", "BNB"]
+
+    changes = [
+        market_data[symbol]["change_24h_percent"]
+        for symbol in symbols
+    ]
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    bars = ax.bar(names, changes)
+
+    ax.axhline(
+        0,
+        linewidth=1
+    )
+
+    ax.set_title(
+        "BTC, ETH & BNB — 24H Market Performance",
+        fontsize=18,
+        fontweight="bold"
+    )
+
+    ax.set_ylabel("24H Change (%)")
+
+    ax.set_xlabel("Asset")
+
+    ax.grid(
+        axis="y",
+        alpha=0.25
+    )
+
+    for bar, value in zip(bars, changes):
+
+        position = (
+            bar.get_height()
+        )
+
+        if value >= 0:
+            position += 0.15
+            vertical_alignment = "bottom"
+        else:
+            position -= 0.15
+            vertical_alignment = "top"
+
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            position,
+            f"{value:+.2f}%",
+            ha="center",
+            va=vertical_alignment,
+            fontweight="bold"
+        )
+
+    fig.text(
+        0.5,
+        0.02,
+        "Source: Binance market data • Snapshot at publication time",
+        ha="center",
+        fontsize=9
+    )
+
+    plt.tight_layout(
+        rect=[0, 0.05, 1, 1]
+    )
+
+    chart_path = "market_chart.png"
+
+    plt.savefig(
+        chart_path,
+        dpi=180,
+        bbox_inches="tight"
+    )
+
+    plt.close()
+
+    return chart_path
 # ============================================================
 # GEMINI ARTICLE GENERATION
 # ============================================================
