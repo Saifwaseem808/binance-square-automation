@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 
 # ============================================================
-# CONFIG
+# CONFIGURATION
 # ============================================================
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -144,14 +144,14 @@ def create_market_chart(market_data):
         )
 
     print(
-        f"Chart created successfully: {CHART_PATH}"
+        f"Chart created: {CHART_PATH}"
     )
 
     return CHART_PATH
 
 
 # ============================================================
-# GEMINI ARTICLE
+# GEMINI ARTICLE GENERATION
 # ============================================================
 
 def generate_article(market_data):
@@ -168,30 +168,50 @@ Create ONE high-quality daily crypto market article.
 
 Use ONLY the market data supplied below.
 
-Rules:
+IMPORTANT RULES:
 
 - Do not invent news.
 - Do not invent statistics.
 - Do not invent events.
 - Do not promise profits.
 - Do not give guaranteed predictions.
-- Explain that prices are snapshots.
+- Explain that prices are snapshots and can change.
 - Analyze BTC, ETH and BNB.
 - Explain their 24-hour movements.
 - Discuss market strength and weakness.
 - Discuss risks.
-- Use $BTC, $ETH and $BNB naturally.
-- Add 3-5 relevant hashtags.
 - Use professional English.
 - Avoid excessive emojis.
 - Create an interesting factual title.
 - Target approximately 700-1000 words.
 
+TOKEN TAG RULES:
+
+- Include token cashtags ONLY for tokens actually discussed.
+- Use the format $BTC, $ETH, $BNB.
+- Do not invent token symbols.
+- If BTC, ETH and BNB are discussed, naturally use all three.
+
+HASHTAG RULES:
+
+- Add 3-5 relevant topic hashtags at the END of the article.
+- Use the # symbol.
+- Examples: #Bitcoin #Ethereum #BNB #Crypto #MarketAnalysis
+- Do not use misleading or unrelated hashtags.
+- Do not repeat the same hashtag.
+- Keep hashtags relevant to the actual article.
+
+IMPORTANT:
+
+The Binance Square backend parses $coin and #topic directly
+from the article text. Therefore, put the cashtags and hashtags
+directly into the article body.
+
 Return ONLY valid JSON:
 
 {{
     "title": "Article title",
-    "body": "Complete article body"
+    "body": "Complete article body including token tags and hashtags"
 }}
 
 MARKET DATA:
@@ -218,7 +238,25 @@ CURRENT UTC TIME:
             "Gemini returned an empty response."
         )
 
-    article = json.loads(text)
+    try:
+        article = json.loads(text)
+    except json.JSONDecodeError as error:
+        print("Gemini returned invalid JSON:")
+        print(text)
+
+        raise RuntimeError(
+            "Gemini response was not valid JSON."
+        ) from error
+
+    if "title" not in article:
+        raise RuntimeError(
+            "Gemini response does not contain title."
+        )
+
+    if "body" not in article:
+        raise RuntimeError(
+            "Gemini response does not contain body."
+        )
 
     title = str(article["title"]).strip()
     body = str(article["body"]).strip()
@@ -237,25 +275,93 @@ CURRENT UTC TIME:
 
 
 # ============================================================
+# VALIDATE TOKEN TAGS AND HASHTAGS
+# ============================================================
+
+def validate_tags(body):
+
+    required_tokens = []
+
+    upper_body = body.upper()
+
+    if "$BTC" in upper_body:
+        required_tokens.append("$BTC")
+
+    if "$ETH" in upper_body:
+        required_tokens.append("$ETH")
+
+    if "$BNB" in upper_body:
+        required_tokens.append("$BNB")
+
+    hashtags = []
+
+    for word in body.split():
+
+        clean_word = word.strip(
+            ".,!?;:()[]{}\"'"
+        )
+
+        if clean_word.startswith("#"):
+            hashtags.append(clean_word)
+
+    unique_hashtags = list(
+        dict.fromkeys(hashtags)
+    )
+
+    print("")
+    print("Detected Binance token tags:")
+
+    if required_tokens:
+        print(
+            ", ".join(required_tokens)
+        )
+    else:
+        print("None")
+
+    print("")
+    print("Detected hashtags:")
+
+    if unique_hashtags:
+        print(
+            ", ".join(unique_hashtags[:10])
+        )
+    else:
+        print("None")
+
+    return body
+
+
+# ============================================================
 # PUBLISH TO BINANCE SQUARE
 # ============================================================
 
-def publish_to_square(title, body, cover_path):
+def publish_to_square(
+    title,
+    body,
+    cover_path
+):
 
     env = os.environ.copy()
 
-    env["BINANCE_SQUARE_OPENAPI_KEY"] = BINANCE_SQUARE_KEY
+    env[
+        "BINANCE_SQUARE_OPENAPI_KEY"
+    ] = BINANCE_SQUARE_KEY
 
-    # Convert the chart path to an absolute path.
-    absolute_cover_path = Path(cover_path).resolve()
+    absolute_cover_path = Path(
+        cover_path
+    ).resolve()
 
     if not absolute_cover_path.exists():
+
         raise RuntimeError(
-            f"Cover image does not exist: {absolute_cover_path}"
+            f"Cover image does not exist: "
+            f"{absolute_cover_path}"
         )
 
+    print("")
     print(
-        f"Cover image found: {absolute_cover_path}"
+        f"Cover image found: "
+        f"{absolute_cover_path}"
     )
 
     command = [
@@ -269,8 +375,9 @@ def publish_to_square(title, body, cover_path):
         str(absolute_cover_path),
     ]
 
+    print("")
     print(
-        "Publishing article with cover image..."
+        "Publishing article with cover..."
     )
 
     result = subprocess.run(
@@ -281,16 +388,21 @@ def publish_to_square(title, body, cover_path):
         capture_output=True,
     )
 
+    print("")
     print("Binance Square output:")
     print(result.stdout)
 
     if result.stderr:
+
+        print("")
         print(
             "Binance Square warnings:"
         )
+
         print(result.stderr)
 
     if result.returncode != 0:
+
         raise RuntimeError(
             "Binance Square publishing failed."
         )
@@ -303,39 +415,65 @@ def publish_to_square(title, body, cover_path):
 def main():
 
     print("")
-    print("==========================================")
-    print(" BINANCE SQUARE AUTOMATION")
-    print("==========================================")
+    print(
+        "=========================================="
+    )
+
+    print(
+        "      BINANCE SQUARE AUTOMATION"
+    )
+
+    print(
+        "=========================================="
+    )
 
     print("")
-    print("1/4 Getting Binance market data...")
+    print(
+        "1/5 Getting Binance market data..."
+    )
 
     market_data = get_market_data()
 
     print(
-        "Market data received."
+        "Market data received successfully."
     )
 
     print("")
-    print("2/4 Creating market chart...")
+    print(
+        "2/5 Creating market chart..."
+    )
 
     chart_path = create_market_chart(
         market_data
     )
 
     print("")
-    print("3/4 Generating article with Gemini...")
+    print(
+        "3/5 Generating article with Gemini..."
+    )
 
     title, body = generate_article(
         market_data
     )
 
     print("")
-    print("Article title:")
+    print(
+        "Generated title:"
+    )
+
     print(title)
 
     print("")
-    print("4/4 Publishing to Binance Square...")
+    print(
+        "4/5 Checking token tags and hashtags..."
+    )
+
+    body = validate_tags(body)
+
+    print("")
+    print(
+        "5/5 Publishing to Binance Square..."
+    )
 
     publish_to_square(
         title,
@@ -344,9 +482,19 @@ def main():
     )
 
     print("")
-    print("==========================================")
-    print(" PUBLISHED SUCCESSFULLY")
-    print("==========================================")
+    print(
+        "=========================================="
+    )
+
+    print(
+        "       PUBLISHED SUCCESSFULLY"
+    )
+
+    print(
+        "=========================================="
+    )
+
+    print("")
 
 
 if __name__ == "__main__":
