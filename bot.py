@@ -19,7 +19,7 @@ BINANCE_SQUARE_KEY = os.environ["BINANCE_SQUARE_OPENAPI_KEY"]
 
 
 # ============================================================
-# GET MARKET DATA FROM BINANCE PUBLIC API
+# GET MARKET DATA
 # ============================================================
 
 def get_market_data():
@@ -32,9 +32,10 @@ def get_market_data():
 
     market_data = {}
 
-    for symbol in symbols:
+    # Binance's official market-data-only endpoint
+    url = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
-        url = "https://api.binance.com/api/v3/ticker/24hr"
+    for symbol in symbols:
 
         response = requests.get(
             url,
@@ -81,14 +82,14 @@ IMPORTANT RULES:
 3. Do not claim that an event happened unless it is present in the supplied data.
 4. Do not promise profits.
 5. Do not give guaranteed trading predictions.
-6. Clearly explain that market prices are snapshots and can change.
+6. Explain that prices are snapshots and can change.
 7. Discuss Bitcoin, Ethereum and BNB.
-8. Explain the current 24-hour price movement.
-9. Mention important market observations.
-10. Discuss potential risks.
-11. Use $BTC, $ETH and $BNB naturally in the article.
-12. Add 3-5 relevant topic hashtags.
-13. Make the article useful and educational.
+8. Explain their current 24-hour price movements.
+9. Highlight useful market observations.
+10. Discuss risks.
+11. Use $BTC, $ETH and $BNB naturally.
+12. Add 3-5 relevant hashtags.
+13. Make the article educational and useful.
 14. Use clear English.
 15. Target approximately 700-1000 words.
 16. Create an interesting but factual title.
@@ -126,10 +127,10 @@ CURRENT UTC TIME:
     article = json.loads(text)
 
     if "title" not in article:
-        raise RuntimeError("Gemini response does not contain a title.")
+        raise RuntimeError("Gemini response has no title.")
 
     if "body" not in article:
-        raise RuntimeError("Gemini response does not contain article body.")
+        raise RuntimeError("Gemini response has no body.")
 
     if not article["body"].strip():
         raise RuntimeError("Generated article body is empty.")
@@ -142,11 +143,6 @@ CURRENT UTC TIME:
 # ============================================================
 
 def publish_to_square(title, body):
-
-    # The official Binance Square skill expects the API key
-    # in BINANCE_SQUARE_OPENAPI_KEY.
-    #
-    # We do NOT put the key in command-line arguments.
 
     env = os.environ.copy()
 
