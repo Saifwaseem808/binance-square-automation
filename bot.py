@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 from google import genai
@@ -17,6 +18,9 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 GEMINI_MODEL = "gemini-3.6-flash"
 
 BINANCE_SQUARE_KEY = os.environ["BINANCE_SQUARE_OPENAPI_KEY"]
+
+BASE_DIR = Path.cwd()
+CHART_PATH = BASE_DIR / "market_chart.png"
 
 
 # ============================================================
@@ -126,17 +130,24 @@ def create_market_chart(market_data):
         rect=[0, 0.05, 1, 1]
     )
 
-    chart_path = "market_chart.png"
-
     plt.savefig(
-        chart_path,
+        CHART_PATH,
         dpi=180,
         bbox_inches="tight"
     )
 
     plt.close()
 
-    return chart_path
+    if not CHART_PATH.exists():
+        raise RuntimeError(
+            "Chart file was not created."
+        )
+
+    print(
+        f"Chart created successfully: {CHART_PATH}"
+    )
+
+    return CHART_PATH
 
 
 # ============================================================
@@ -226,7 +237,7 @@ CURRENT UTC TIME:
 
 
 # ============================================================
-# PUBLISH ARTICLE WITH COVER IMAGE
+# PUBLISH TO BINANCE SQUARE
 # ============================================================
 
 def publish_to_square(title, body, cover_path):
@@ -234,6 +245,18 @@ def publish_to_square(title, body, cover_path):
     env = os.environ.copy()
 
     env["BINANCE_SQUARE_OPENAPI_KEY"] = BINANCE_SQUARE_KEY
+
+    # Convert the chart path to an absolute path.
+    absolute_cover_path = Path(cover_path).resolve()
+
+    if not absolute_cover_path.exists():
+        raise RuntimeError(
+            f"Cover image does not exist: {absolute_cover_path}"
+        )
+
+    print(
+        f"Cover image found: {absolute_cover_path}"
+    )
 
     command = [
         "node",
@@ -243,10 +266,12 @@ def publish_to_square(title, body, cover_path):
         "--title",
         title,
         "--cover",
-        cover_path,
+        str(absolute_cover_path),
     ]
 
-    print("Publishing article with cover image...")
+    print(
+        "Publishing article with cover image..."
+    )
 
     result = subprocess.run(
         command,
@@ -260,7 +285,9 @@ def publish_to_square(title, body, cover_path):
     print(result.stdout)
 
     if result.stderr:
-        print("Binance Square warnings:")
+        print(
+            "Binance Square warnings:"
+        )
         print(result.stderr)
 
     if result.returncode != 0:
@@ -285,17 +312,15 @@ def main():
 
     market_data = get_market_data()
 
-    print("Market data received.")
+    print(
+        "Market data received."
+    )
 
     print("")
     print("2/4 Creating market chart...")
 
     chart_path = create_market_chart(
         market_data
-    )
-
-    print(
-        f"Chart created: {chart_path}"
     )
 
     print("")
