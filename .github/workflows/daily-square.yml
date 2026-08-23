@@ -1,15 +1,35 @@
-name: Daily Binance Square Post
+name: Binance Square Scheduled Posts
 
 on:
   workflow_dispatch:
+    inputs:
+      post_type:
+        description: "Which post should run?"
+        required: true
+        default: "NEWS"
+        type: choice
+        options:
+          - NEWS
+          - MARKET
+          - ARTICLE
+
   schedule:
-    - cron: "0 5 * * *"
+    # 09:00 PKT = 04:00 UTC
+    - cron: "0 4 * * *"
+
+    # 15:00 PKT = 10:00 UTC
+    - cron: "0 10 * * *"
+
+    # 20:00 PKT = 15:00 UTC
+    - cron: "0 15 * * *"
 
 jobs:
+
   publish:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -24,15 +44,39 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        run: pip install requests google-genai matplotlib
+        run: |
+          pip install requests google-genai matplotlib
 
       - name: Install Binance Square skill
         run: |
           git clone --depth 1 https://github.com/binance/binance-skills-hub.git
           cp -r binance-skills-hub/skills/binance/square-post ./square-post
 
+      - name: Determine post type
+        id: post_type
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ inputs.post_type }}" >> "$GITHUB_OUTPUT"
+
+          elif [ "${{ github.event.schedule }}" = "0 4 * * *" ]; then
+            echo "type=NEWS" >> "$GITHUB_OUTPUT"
+
+          elif [ "${{ github.event.schedule }}" = "0 10 * * *" ]; then
+            echo "type=MARKET" >> "$GITHUB_OUTPUT"
+
+          elif [ "${{ github.event.schedule }}" = "0 15 * * *" ]; then
+            echo "type=ARTICLE" >> "$GITHUB_OUTPUT"
+
+          else
+            echo "type=NEWS" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate and publish
         env:
           BINANCE_SQUARE_OPENAPI_KEY: ${{ secrets.BINANCE_SQUARE_OPENAPI_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python bot.py
+          POST_TYPE: ${{ steps.post_type.outputs.type }}
+        run: |
+          echo "Running POST_TYPE=$POST_TYPE"
+          python bot.py
