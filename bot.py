@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import urllib.parse
 import urllib.request
@@ -38,7 +39,7 @@ def get_market_data():
         "BNBUSDT",
     ]
 
-    data = {}
+    market_data = {}
 
     url = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
@@ -54,7 +55,7 @@ def get_market_data():
 
         item = response.json()
 
-        data[symbol] = {
+        market_data[symbol] = {
             "price_usd": float(item["lastPrice"]),
             "change_24h_percent": float(
                 item["priceChangePercent"]
@@ -67,20 +68,20 @@ def get_market_data():
             ),
         }
 
-    return data
+    return market_data
 
 
 # ============================================================
-# NEWS COLLECTION
+# NEWS
 # ============================================================
 
-def fetch_news(query, limit=6):
+def fetch_news(query, limit=5):
 
-    encoded = urllib.parse.quote_plus(query)
+    encoded_query = urllib.parse.quote_plus(query)
 
     url = (
         "https://news.google.com/rss/search?"
-        f"q={encoded}"
+        f"q={encoded_query}"
         "&hl=en-US"
         "&gl=US"
         "&ceid=US:en"
@@ -155,7 +156,7 @@ def get_latest_news():
     queries = [
         "Bitcoin crypto",
         "Ethereum crypto",
-        "Binance BNB crypto",
+        "BNB Binance crypto",
         "crypto ETF",
         "crypto regulation",
     ]
@@ -256,9 +257,12 @@ def create_market_chart(market_data):
     ):
 
         if value >= 0:
+
             y = value + 0.15
             alignment = "bottom"
+
         else:
+
             y = value - 0.15
             alignment = "top"
 
@@ -293,15 +297,20 @@ def create_market_chart(market_data):
     plt.close()
 
     if not CHART_PATH.exists():
+
         raise RuntimeError(
             "Chart was not created."
         )
+
+    print(
+        f"Chart created: {CHART_PATH}"
+    )
 
     return CHART_PATH
 
 
 # ============================================================
-# GEMINI HELPER
+# GEMINI
 # ============================================================
 
 def ask_gemini(prompt):
@@ -319,18 +328,26 @@ def ask_gemini(prompt):
     )
 
     if not response.text:
+
         raise RuntimeError(
             "Gemini returned empty output."
         )
 
     try:
+
         return json.loads(
             response.text
         )
 
     except json.JSONDecodeError as error:
 
-        print(response.text)
+        print(
+            "Gemini returned:"
+        )
+
+        print(
+            response.text
+        )
 
         raise RuntimeError(
             "Gemini returned invalid JSON."
@@ -338,7 +355,64 @@ def ask_gemini(prompt):
 
 
 # ============================================================
-# 1. NEWS POST
+# CLEAN TEXT FOR BINANCE SQUARE
+# ============================================================
+
+def clean_square_text(text):
+
+    cleaned = str(text)
+
+    # Remove trading-pair formats that Binance
+    # may interpret as coin-pair tags.
+    replacements = {
+        "BTCUSDT": "BTC",
+        "ETHUSDT": "ETH",
+        "BNBUSDT": "BNB",
+        "BTC/USDT": "BTC",
+        "ETH/USDT": "ETH",
+        "BNB/USDT": "BNB",
+        "BTC-USDT": "BTC",
+        "ETH-USDT": "ETH",
+        "BNB-USDT": "BNB",
+    }
+
+    for old, new in replacements.items():
+
+        cleaned = cleaned.replace(
+            old,
+            new,
+        )
+
+    # Remove accidental repeated token tags.
+    token_pattern = re.compile(
+        r"\$(BTC|ETH|BNB)\b",
+        re.IGNORECASE,
+    )
+
+    seen_tokens = set()
+
+    def token_replacer(match):
+
+        token = match.group(1).upper()
+
+        if token in seen_tokens:
+
+            return token
+
+        seen_tokens.add(token)
+
+        return f"${token}"
+
+    cleaned = token_pattern.sub(
+        token_replacer,
+        cleaned,
+    )
+
+    return cleaned.strip()
+
+
+# ============================================================
+# NEWS POST
 # ============================================================
 
 def generate_news_post(news):
@@ -353,45 +427,59 @@ def generate_news_post(news):
                 "source": item["source"],
                 "published": item["published"],
                 "description": item["description"],
-                "url": item["url"],
             }
         )
 
     prompt = f"""
-Create ONE Binance Square NEWS POST.
+Create ONE short Binance Square NEWS POST.
 
-This is ONLY a news post.
+This post must contain ONLY fresh crypto news.
 
-Do NOT write a market analysis.
+DO NOT create a market analysis.
 
-Do NOT discuss BTC/ETH/BNB price performance
-unless the supplied news itself is specifically
-about that price movement.
+DO NOT create a long-form educational article.
 
-Do NOT create a long-form article.
+Select the most important 3-5 stories.
 
-Select the 3-5 most important fresh crypto news
-items from the supplied list.
+For each story:
 
-For each selected story:
-
-- State what happened.
+- Explain what happened.
 - Explain why it matters.
-- Keep it concise.
-- Clearly identify the source.
+- Identify the source.
 - Do not invent facts.
 - Do not copy article text.
-- Do not make unsupported predictions.
+- Keep it concise.
 
-Use professional English.
+IMPORTANT BINANCE RULES:
 
-Add relevant $TOKEN tags and 3-5 hashtags.
+Use AT MOST 3 token tags in the entire post.
 
-Return JSON:
+The ONLY allowed token tags are:
+
+$BTC
+$ETH
+$BNB
+
+Do not use trading pairs.
+
+Never write:
+
+BTCUSDT
+ETHUSDT
+BNBUSDT
+BTC/USDT
+ETH/USDT
+BNB/USDT
+
+Do not copy pair names from headlines.
+
+Add only 3 relevant hashtags.
+
+Return ONLY JSON:
 
 {{
-  "title": "News headline",
-  "body": "News-only post"
+    "title": "News title",
+    "body": "News-only post"
 }}
 
 NEWS:
@@ -401,14 +489,22 @@ NEWS:
 
     result = ask_gemini(prompt)
 
+    title = str(
+        result["title"]
+    ).strip()
+
+    body = str(
+        result["body"]
+    ).strip()
+
     return (
-        result["title"].strip(),
-        result["body"].strip(),
+        clean_square_text(title),
+        clean_square_text(body),
     )
 
 
 # ============================================================
-# 2. MARKET ANALYSIS POST
+# MARKET ANALYSIS
 # ============================================================
 
 def generate_market_analysis(
@@ -418,61 +514,77 @@ def generate_market_analysis(
     prompt = f"""
 Create ONE Binance Square MARKET ANALYSIS POST.
 
-This is ONLY a market analysis.
+This post must contain ONLY market analysis.
 
-Do NOT create a news roundup.
+Do NOT include news.
 
-Do NOT include external news.
+Do NOT summarize external headlines.
 
-Analyze ONLY the supplied Binance market data.
+Use ONLY this Binance market data:
+
+{json.dumps(market_data, indent=2)}
 
 Discuss:
 
-- BTC price and 24h movement
-- ETH price and 24h movement
-- BNB price and 24h movement
+- BTC price
+- BTC 24h movement
+- ETH price
+- ETH 24h movement
+- BNB price
+- BNB 24h movement
 - Relative strength
-- Volatility
 - Volume
 - High/low ranges
-- Bullish and bearish scenarios
-- Key risks
-- What market participants should watch
+- Volatility
+- Bullish scenario
+- Bearish scenario
+- Risks
+- What to watch next
 
-Do NOT guarantee any outcome.
+Do not promise profits.
 
-Do NOT promise profits.
+Do not guarantee predictions.
 
-Do NOT say buy or sell.
+Do not tell readers to buy or sell.
 
-Use $BTC, $ETH and $BNB naturally.
+Use only these token tags:
 
-Add 3-5 relevant hashtags.
+$BTC
+$ETH
+$BNB
 
-Target approximately 500-700 words.
+Use each at most once.
 
-Return JSON:
+Do not write trading pairs.
+
+Add 3 relevant hashtags.
+
+Return ONLY JSON:
 
 {{
-  "title": "Market analysis title",
-  "body": "Market-analysis-only post"
+    "title": "Market analysis title",
+    "body": "Market-analysis-only post"
 }}
-
-MARKET DATA:
-
-{json.dumps(market_data, indent=2)}
 """
 
     result = ask_gemini(prompt)
 
+    title = str(
+        result["title"]
+    ).strip()
+
+    body = str(
+        result["body"]
+    ).strip()
+
     return (
-        result["title"].strip(),
-        result["body"].strip(),
+        clean_square_text(title),
+        clean_square_text(body),
     )
 
 
 # ============================================================
-# 3. ORIGINAL LONG-FORM ARTICLE
+# ORIGINAL ARTICLE
 # ============================================================
 
 def generate_original_article(
@@ -480,91 +592,90 @@ def generate_original_article(
     news,
 ):
 
-    news_titles = [
-        item["title"]
-        for item in news[:10]
-    ]
-
     prompt = f"""
 Create ONE ORIGINAL LONG-FORM CRYPTO ARTICLE
 for Binance Square.
 
-This must be completely different from:
+This is NOT a news post.
 
-1. The news post.
-2. The market analysis post.
+This is NOT a daily market analysis.
 
-Do NOT create a news roundup.
+Choose ONE educational topic related to crypto.
 
-Do NOT simply describe today's BTC/ETH/BNB prices.
+Possible topics:
 
-Choose ONE educational crypto topic that is
-useful to Binance Square readers.
+- Crypto liquidity
+- Market cycles
+- ETF flows
+- Crypto volatility
+- Leverage
+- Risk management
+- Macro factors
+- On-chain fundamentals
+- Understanding crypto volume
 
-Examples:
+Choose ONE topic only.
 
-- How liquidity affects crypto markets
-- How ETF flows can influence sentiment
-- How to understand crypto market cycles
-- How leverage creates volatility
-- How investors can interpret market volume
-- How macroeconomic expectations affect crypto
+The article must:
 
-Choose the topic based on what is most relevant,
-but do not invent facts.
-
-The article should:
-
-- Have a strong title.
-- Be educational.
-- Explain concepts deeply.
-- Use examples where appropriate.
-- Include risks and limitations.
 - Be original.
+- Be educational.
+- Explain the topic deeply.
 - Be approximately 1000-1400 words.
-- Use $BTC, $ETH and $BNB only when relevant.
-- End with 3-5 relevant hashtags.
+- Not copy news.
+- Not summarize today's headlines.
+- Not become a BTC/ETH/BNB daily price report.
+- Mention risks and limitations.
+- Use $BTC, $ETH or $BNB only when genuinely relevant.
+- Add 3 relevant hashtags.
 
-IMPORTANT:
+The news supplied below is ONLY context for
+choosing a useful topic.
 
-The supplied news titles are ONLY context for
-choosing a relevant topic.
+Do NOT turn the news into the article.
 
-Do NOT turn these headlines into a news article.
+Do NOT copy the headlines.
 
-Do NOT copy them.
-
-Do NOT mention every headline.
-
-Return JSON:
+Return ONLY JSON:
 
 {{
-  "title": "Original article title",
-  "body": "Complete long-form article"
+    "title": "Original article title",
+    "body": "Complete long-form article"
 }}
 
-CURRENT MARKET DATA:
+MARKET DATA:
 
 {json.dumps(market_data, indent=2)}
 
-RECENT NEWS HEADLINES FOR CONTEXT ONLY:
+NEWS CONTEXT:
 
-{json.dumps(news_titles, indent=2)}
+{json.dumps(
+    [item["title"] for item in news[:8]],
+    indent=2
+)}
 """
 
     result = ask_gemini(prompt)
 
+    title = str(
+        result["title"]
+    ).strip()
+
+    body = str(
+        result["body"]
+    ).strip()
+
     return (
-        result["title"].strip(),
-        result["body"].strip(),
+        clean_square_text(title),
+        clean_square_text(body),
     )
 
 
 # ============================================================
-# BINANCE SQUARE PUBLISHER
+# PUBLISH
 # ============================================================
 
-def publish_article(
+def publish_to_square(
     title,
     body,
     cover=None,
@@ -575,6 +686,14 @@ def publish_article(
     env[
         "BINANCE_SQUARE_OPENAPI_KEY"
     ] = BINANCE_SQUARE_KEY
+
+    title = clean_square_text(
+        title
+    )
+
+    body = clean_square_text(
+        body
+    )
 
     if cover:
 
@@ -610,6 +729,11 @@ def publish_article(
             title,
         ]
 
+    print("")
+    print(
+        f"Publishing: {title}"
+    )
+
     result = subprocess.run(
         command,
         cwd="./square-post",
@@ -618,10 +742,15 @@ def publish_article(
         capture_output=True,
     )
 
-    print(result.stdout)
+    print(
+        result.stdout
+    )
 
     if result.stderr:
-        print(result.stderr)
+
+        print(
+            result.stderr
+        )
 
     if result.returncode != 0:
 
@@ -640,19 +769,23 @@ def main():
     print(
         "=========================================="
     )
+
     print(
         " BINANCE SQUARE 3-POST AUTOMATION"
     )
+
     print(
         "=========================================="
     )
 
     # --------------------------------------------------------
-    # DATA
+    # 1. DATA
     # --------------------------------------------------------
 
     print("")
-    print("1/7 Getting market data...")
+    print(
+        "1/7 Getting market data..."
+    )
 
     market_data = get_market_data()
 
@@ -660,8 +793,14 @@ def main():
         "Market data ready."
     )
 
+    # --------------------------------------------------------
+    # 2. NEWS
+    # --------------------------------------------------------
+
     print("")
-    print("2/7 Getting fresh news...")
+    print(
+        "2/7 Getting fresh news..."
+    )
 
     news = get_latest_news()
 
@@ -672,53 +811,53 @@ def main():
         )
 
     # --------------------------------------------------------
-    # CHART
+    # 3. CHART
     # --------------------------------------------------------
 
     print("")
-    print("3/7 Creating market chart...")
+    print(
+        "3/7 Creating market chart..."
+    )
 
     chart = create_market_chart(
         market_data
     )
 
     # --------------------------------------------------------
-    # NEWS
+    # 4. NEWS POST
     # --------------------------------------------------------
 
     print("")
     print(
-        "4/7 Generating separate NEWS post..."
+        "4/7 Creating NEWS post..."
     )
 
     news_title, news_body = (
-        generate_news_post(news)
+        generate_news_post(
+            news
+        )
     )
 
     print(
-        f"NEWS: {news_title}"
+        "Publishing NEWS..."
     )
 
-    print(
-        "Publishing NEWS post..."
-    )
-
-    publish_article(
+    publish_to_square(
         news_title,
         news_body,
     )
 
     print(
-        "NEWS POST PUBLISHED."
+        "NEWS POST SUCCESS."
     )
 
     # --------------------------------------------------------
-    # MARKET ANALYSIS
+    # 5. MARKET ANALYSIS
     # --------------------------------------------------------
 
     print("")
     print(
-        "5/7 Generating separate MARKET ANALYSIS..."
+        "5/7 Creating MARKET ANALYSIS..."
     )
 
     analysis_title, analysis_body = (
@@ -728,30 +867,26 @@ def main():
     )
 
     print(
-        f"MARKET: {analysis_title}"
-    )
-
-    print(
         "Publishing MARKET ANALYSIS..."
     )
 
-    publish_article(
+    publish_to_square(
         analysis_title,
         analysis_body,
         chart,
     )
 
     print(
-        "MARKET ANALYSIS PUBLISHED."
+        "MARKET ANALYSIS SUCCESS."
     )
 
     # --------------------------------------------------------
-    # ARTICLE
+    # 6. ARTICLE
     # --------------------------------------------------------
 
     print("")
     print(
-        "6/7 Generating separate LONG-FORM ARTICLE..."
+        "6/7 Creating ORIGINAL ARTICLE..."
     )
 
     article_title, article_body = (
@@ -762,25 +897,16 @@ def main():
     )
 
     print(
-        f"ARTICLE: {article_title}"
+        "Publishing ORIGINAL ARTICLE..."
     )
 
-    print(
-        "Publishing LONG-FORM ARTICLE..."
-    )
-
-    # The existing market chart is NOT used
-    # for this article.
-    # This keeps the article separate from
-    # the market-analysis post.
-
-    publish_article(
+    publish_to_square(
         article_title,
         article_body,
     )
 
     print(
-        "LONG-FORM ARTICLE PUBLISHED."
+        "ORIGINAL ARTICLE SUCCESS."
     )
 
     # --------------------------------------------------------
@@ -789,20 +915,23 @@ def main():
 
     print("")
     print(
-        "7/7 All three posts published."
+        "7/7 Finished."
     )
 
     print("")
     print(
         "=========================================="
     )
+
     print(
-        " SUCCESS — 3 SEPARATE POSTS"
+        "  3 SEPARATE POSTS PUBLISHED SUCCESSFULLY"
     )
+
     print(
         "=========================================="
     )
 
 
 if __name__ == "__main__":
+
     main()
